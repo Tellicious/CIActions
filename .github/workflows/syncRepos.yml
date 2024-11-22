@@ -1,0 +1,111 @@
+name: Sync repositories
+
+on:
+  workflow_call:
+    inputs:
+      is-primary-target:
+        description: "Set to true if primary repository is the target, set to false if it is the source"
+        required: true
+        type: boolean
+      primary-branch:
+        description: "Reference branch of primary repository"
+        required: true
+        type: string
+      primary-path:
+        description: "Reference path of primary repository"
+        required: true
+        type: string
+      secondary-repo:
+        description: "Secondary repository name"
+        required: true
+        type: string
+      secondary-branch:
+        description: "Reference branch of secondary repository"
+        required: true
+        type: string
+      secondary-path:
+        description: "Reference path of secondary repository"
+        required: true
+        type: string
+    secrets:
+      primary-pat:
+        description: "Personal Access Token for primary repo authentication"
+        required: false
+      secondary-pat:
+        description: "Personal Access Token for secondary repo authentication"
+        required: false
+
+jobs:
+  syncRepos:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Install dependencies
+      run: |
+        sudo apt-get update && sudo apt-get install -y git
+
+    - name: Checkout ${{ github.repository }}
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.primary-branch }}
+        fetch-depth: 1
+        submodules: 'false'
+        token: ${{ secrets.primary-pat || secrets.GITHUB_TOKEN }}
+        path: primary-repo
+
+    - name: Checkout ${{ inputs.secondary-repo }}
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.secondary-repo }}
+        ref: ${{ inputs.secondary-branch }}
+        fetch-depth: 1
+        submodules: 'false'
+        token: ${{ secrets.secondary-pat || secrets.GITHUB_TOKEN }}
+        path: secondary-repo
+
+    - name: Sync files from ${{ inputs.secondary-repo }} to ${{ github.repository }}
+      if: ${{ inputs.is-primary-target }}
+      run: |
+        set -e
+        rm -rf primary-repo/${{ inputs.primary-path }}/*
+        cp -rf secondary-repo/${{ inputs.secondary-path }}/* primary-repo/${{ inputs.primary-path }}/
+
+    - name: Sync files from ${{ github.repository }} to ${{ inputs.secondary-repo }}
+      if: ${{ !inputs.is-primary-target }}
+      run: |
+        set -e
+        rm -rf secondary-repo/${{ inputs.secondary-path }}/*
+        cp -rf primary-repo/${{ inputs.primary-path }}/* secondary-repo/${{ inputs.secondary-path }}/
+
+    - name: Commit changes to ${{ github.repository }}
+      if: ${{ inputs.is-primary-target }}
+      run: |
+        set -e
+        cd primary-repo
+        git config --global core.autocrlf input
+        git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        if [[ `git status --porcelain` ]]; then
+          echo "Changes detected, committing changes."
+          git add .
+          git commit -m "Synced with ${{ inputs.secondary-repo }}"
+          git push
+        else
+          echo "No changes detected."
+        fi
+
+    - name: Commit changes to ${{ inputs.secondary-repo }}
+      if: ${{ !inputs.is-primary-target }}
+      run: |
+        set -e
+        cd secondary-repo
+        git config --global core.autocrlf input
+        git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        if [[ `git status --porcelain` ]]; then
+          echo "Changes detected, committing changes."
+          git diff-index --quiet HEAD || git commit -m "Synced with ${{ github.repository }}" -a
+          git push
+        else
+          echo "No changes detected."
+        fi

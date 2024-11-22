@@ -1,0 +1,30 @@
+name: CMSIS-core driver update
+
+on:
+  workflow_call:
+    inputs:
+      target-branch:
+        description: "Target branch to update"
+        required: true
+        type: string
+      stm32cube-repo:
+        description: "STM32Cube repository name"
+        required: true
+        type: string
+    secrets:
+      pat:
+        description: "Personal Access Token for authentication"
+        required: false
+
+jobs:
+  CMSISCoreUpdate:
+    uses: ./.github/workflows/syncRepos.yml
+    with:
+      is-primary-target: true
+      primary-branch: ${{ inputs.target-branch }}
+      primary-path: "Drivers/CMSIS/Include"
+      secondary-repo: STMicroelectronics/${{ inputs.stm32cube-repo }}
+      secondary-branch: "master"
+      secondary-path: "Drivers/CMSIS/Core/Include"
+    secrets:
+      primary-pat: ${{ secrets.pat || secrets.GITHUB_TOKEN }}

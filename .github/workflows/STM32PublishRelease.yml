@@ -1,0 +1,74 @@
+name: Publish STM32 release with build artifacts
+
+on:
+  workflow_call:
+    inputs:
+      build-type:
+        description: "CMake build type (e.g., Release, Debug, etc.)"
+        required: true
+        type: string
+      target-branch:
+        description: "Target branch to checkout and build"
+        required: true
+        type: string
+      tag:
+        description: "Target tag to release"
+        required: true
+        type: string
+      release-name:
+        description: "Name of the release"
+        required: true
+        type: string
+      body-file:
+        description: "Path to release body file"
+        required: true
+        type: string
+    secrets:
+      pat:
+        description: "Personal Access Token for authentication"
+        required: false
+
+jobs:
+  publishRelease:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Install dependencies
+      run: |
+          sudo apt install -y \
+          build-essential \
+          gcc-arm-none-eabi \
+          binutils-arm-none-eabi \
+          cmake ninja-build
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.target-branch }}
+        submodules: 'recursive'
+        fetch-depth: 0
+        token: ${{ secrets.pat || secrets.GITHUB_TOKEN }}
+
+    - name: Configure CMake
+      run: |
+        cmake \
+          -DCMAKE_BUILD_TYPE=${{ inputs.build-type }} \
+          -DCMAKE_TOOLCHAIN_FILE:FILEPATH=${{ github.workspace }}/cmake/gcc-arm-none-eabi.cmake \
+          -S ${{ github.workspace }} \
+          -B ${{ github.workspace }}/build \
+          -G Ninja
+
+    - name: Build
+      run: cmake --build ${{ github.workspace }}/build
+
+    - name: Create release
+      uses: ncipollo/release-action@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.pat || secrets.GITHUB_TOKEN }}
+      with:
+        tag: ${{ inputs.tag }}
+        name: ${{ inputs.release-name }}
+        bodyFile: ${{ inputs.body-file }}
+        makeLatest: true
+        draft: false
+        prerelease: false
+        artifacts: "${{ github.workspace }}/build/*.bin"
