@@ -34,7 +34,7 @@ jobs:
         with:
           ref: ${{ inputs.target-branch }}
           submodules: 'recursive'
-          fetch-depth: 0
+          fetch-depth: 1
           token: ${{ secrets.pat || secrets.GITHUB_TOKEN }}
 
       - name: Configure CMake
