@@ -104,7 +104,8 @@ jobs:
         git config --local user.name "github-actions[bot]"
         if [[ `git status --porcelain` ]]; then
           echo "Changes detected, committing changes."
-          git diff-index --quiet HEAD || git commit -m "Synced with ${{ github.repository }}" -a
+          git add .
+          git commit -m "Synced with ${{ github.repository }}"
           git push
         else
           echo "No changes detected."
