@@ -16,6 +16,13 @@ on:
         description: "Personal Access Token for authentication"
         required: false
 
+permissions:
+  contents: read
+
+concurrency:
+  group: stm32-build-${{ github.repository }}-${{ inputs.target-branch }}-${{ inputs.build-type }}
+  cancel-in-progress: true
+
 jobs:
   STM32Build:
     runs-on: ubuntu-latest
@@ -23,11 +30,12 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
-          sudo apt install -y \
+          set -e
+          sudo apt-get update && sudo apt-get install -y \
               build-essential \
               gcc-arm-none-eabi \
               binutils-arm-none-eabi \
-              cmake ninja-build
+              cmake ninja-build || { echo "::error::Failed to install build dependencies" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
 
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -38,13 +46,23 @@ jobs:
           token: ${{ secrets.pat || secrets.GITHUB_TOKEN }}
 
       - name: Configure CMake
+        env:
+          BUILD_TYPE: ${{ inputs.build-type }}
         run: |
+          set -e
           cmake \
-            -DCMAKE_BUILD_TYPE=${{ inputs.build-type }} \
+            -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
             -DCMAKE_TOOLCHAIN_FILE:FILEPATH=${{ github.workspace }}/cmake/gcc-arm-none-eabi.cmake \
             -S ${{ github.workspace }} \
             -B ${{ github.workspace }}/build \
-            -G Ninja
+            -G Ninja || { echo "::error::CMake configuration failed" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
 
       - name: Build
-        run: cmake --build ${{ github.workspace }}/build
+        run: |
+          set -e
+          build_log="${RUNNER_TEMP}/cmake-build.log"
+          if ! cmake --build "${{ github.workspace }}/build" >"$build_log" 2>&1; then
+            cat "$build_log" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Build failed" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi

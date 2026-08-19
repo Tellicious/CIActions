@@ -28,17 +28,25 @@ on:
         description: "Personal Access Token for authentication"
         required: false
 
+permissions:
+  contents: write
+
+concurrency:
+  group: stm32-publish-release-${{ github.repository }}-${{ inputs.tag }}
+  cancel-in-progress: false
+
 jobs:
   publishRelease:
     runs-on: ubuntu-latest
     steps:
     - name: Install dependencies
       run: |
-          sudo apt install -y \
+          set -e
+          sudo apt-get update && sudo apt install -y \
           build-essential \
           gcc-arm-none-eabi \
           binutils-arm-none-eabi \
-          cmake ninja-build
+          cmake ninja-build || { echo "::error::Failed to install build dependencies" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
 
     - name: Checkout repository
       uses: actions/checkout@v7
@@ -49,26 +57,52 @@ jobs:
         token: ${{ secrets.pat || secrets.GITHUB_TOKEN }}
 
     - name: Configure CMake
+      env:
+        BUILD_TYPE: ${{ inputs.build-type }}
       run: |
+        set -e
         cmake \
-          -DCMAKE_BUILD_TYPE=${{ inputs.build-type }} \
+          -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
           -DCMAKE_TOOLCHAIN_FILE:FILEPATH=${{ github.workspace }}/cmake/gcc-arm-none-eabi.cmake \
           -S ${{ github.workspace }} \
           -B ${{ github.workspace }}/build \
-          -G Ninja
+          -G Ninja || { echo "::error::CMake configuration failed" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
 
     - name: Build
-      run: cmake --build ${{ github.workspace }}/build
+      run: |
+        set -e
+        build_log="${RUNNER_TEMP}/cmake-build.log"
+        if ! cmake --build "${{ github.workspace }}/build" >"$build_log" 2>&1; then
+          cat "$build_log" >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::Build failed" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+        fi
+
+    - name: Verify build artifacts exist
+      env:
+        BUILD_DIR: ${{ github.workspace }}/build
+      run: |
+        shopt -s nullglob
+        files=("$BUILD_DIR"/*.bin)
+        if [ ${#files[@]} -eq 0 ]; then
+          echo "::error::No .bin artifacts found in $BUILD_DIR" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+        fi
+        echo "Found ${#files[@]} .bin artifact(s): ${files[*]}"
 
     - name: Create release
-      uses: ncipollo/release-action@v1
       env:
-        GITHUB_TOKEN: ${{ secrets.pat || secrets.GITHUB_TOKEN }}
-      with:
-        tag: ${{ inputs.tag }}
-        name: ${{ inputs.release-name }}
-        bodyFile: ${{ inputs.body-file }}
-        makeLatest: true
-        draft: false
-        prerelease: false
-        artifacts: "${{ github.workspace }}/build/*.bin"
+        GH_TOKEN: ${{ secrets.pat || secrets.GITHUB_TOKEN }}
+        RELEASE_TAG: ${{ inputs.tag }}
+        RELEASE_NAME: ${{ inputs.release-name }}
+        BODY_FILE: ${{ inputs.body-file }}
+        REPOSITORY: ${{ github.repository }}
+        BUILD_DIR: ${{ github.workspace }}/build
+      run: |
+        set -e
+        gh release create "$RELEASE_TAG" \
+          --repo "$REPOSITORY" \
+          --title "$RELEASE_NAME" \
+          --notes-file "$BODY_FILE" \
+          --latest \
+          "$BUILD_DIR"/*.bin || { echo "::error::Failed to create GitHub release $RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"; exit 1; }

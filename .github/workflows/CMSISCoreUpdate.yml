@@ -16,6 +16,13 @@ on:
         description: "Personal Access Token for authentication"
         required: false
 
+permissions:
+  contents: write
+
+concurrency:
+  group: cmsis-core-update-${{ github.repository }}-${{ inputs.target-branch }}
+  cancel-in-progress: false
+
 jobs:
   CMSISCoreUpdate:
     uses: ./.github/workflows/syncRepos.yml

@@ -35,6 +35,13 @@ on:
         description: "Personal Access Token for secondary repo authentication"
         required: false
 
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-repos-${{ github.repository }}-${{ inputs.primary-branch }}
+  cancel-in-progress: false
+
 jobs:
   syncRepos:
     runs-on: ubuntu-latest
@@ -42,7 +49,8 @@ jobs:
     steps:
     - name: Install dependencies
       run: |
-        sudo apt-get update && sudo apt-get install -y git
+        set -e
+        sudo apt-get update && sudo apt-get install -y git || { echo "::error::Failed to install git dependency" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
 
     - name: Checkout ${{ github.repository }}
       uses: actions/checkout@v7
@@ -67,15 +75,15 @@ jobs:
       if: ${{ inputs.is-primary-target }}
       run: |
         set -e
-        rm -rf primary-repo/${{ inputs.primary-path }}/*
-        cp -rf secondary-repo/${{ inputs.secondary-path }}/* primary-repo/${{ inputs.primary-path }}/
+        rm -rf primary-repo/${{ inputs.primary-path }}/* || { echo "::error::Failed to clear primary-repo/${{ inputs.primary-path }}" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
+        cp -rf secondary-repo/${{ inputs.secondary-path }}/* primary-repo/${{ inputs.primary-path }}/ || { echo "::error::Failed to copy files from secondary-repo/${{ inputs.secondary-path }}" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
 
     - name: Sync files from ${{ github.repository }} to ${{ inputs.secondary-repo }}
       if: ${{ !inputs.is-primary-target }}
       run: |
         set -e
-        rm -rf secondary-repo/${{ inputs.secondary-path }}/*
-        cp -rf primary-repo/${{ inputs.primary-path }}/* secondary-repo/${{ inputs.secondary-path }}/
+        rm -rf secondary-repo/${{ inputs.secondary-path }}/* || { echo "::error::Failed to clear secondary-repo/${{ inputs.secondary-path }}" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
+        cp -rf primary-repo/${{ inputs.primary-path }}/* secondary-repo/${{ inputs.secondary-path }}/ || { echo "::error::Failed to copy files from primary-repo/${{ inputs.primary-path }}" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
 
     - name: Commit changes to ${{ github.repository }}
       if: ${{ inputs.is-primary-target }}
@@ -88,8 +96,8 @@ jobs:
         if [[ `git status --porcelain` ]]; then
           echo "Changes detected, committing changes."
           git add .
-          git commit -m "Synced with ${{ inputs.secondary-repo }}"
-          git push
+          git commit -m "Synced with ${{ inputs.secondary-repo }}" || { echo "::error::Failed to commit changes to ${{ github.repository }}" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
+          git push || { echo "::error::Failed to push changes to ${{ github.repository }}" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
         else
           echo "No changes detected."
         fi
@@ -105,8 +113,8 @@ jobs:
         if [[ `git status --porcelain` ]]; then
           echo "Changes detected, committing changes."
           git add .
-          git commit -m "Synced with ${{ github.repository }}"
-          git push
+          git commit -m "Synced with ${{ github.repository }}" || { echo "::error::Failed to commit changes to ${{ inputs.secondary-repo }}" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
+          git push || { echo "::error::Failed to push changes to ${{ inputs.secondary-repo }}" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
         else
           echo "No changes detected."
         fi
